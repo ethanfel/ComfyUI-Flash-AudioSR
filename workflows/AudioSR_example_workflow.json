@@ -1,8 +1,8 @@
 {
   "id": "db47042b-a9fa-496a-a80c-a8bcfba3576e",
   "revision": 0,
-  "last_node_id": 11,
-  "last_link_id": 24,
+  "last_node_id": 13,
+  "last_link_id": 30,
   "nodes": [
     {
       "id": 8,
@@ -34,6 +34,97 @@
       "bgcolor": "rgba(24,24,27,.9)"
     },
     {
+      "id": 5,
+      "type": "PreviewImage",
+      "pos": [
+        -2555.3660949653336,
+        7394.601744817516
+      ],
+      "size": [
+        591.9823916810274,
+        399.6900133817717
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 30
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.8.0",
+        "Node name for S&R": "PreviewImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.2"
+        }
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 13,
+      "type": "AudioSR",
+      "pos": [
+        -2418.441917226369,
+        6999.153046672299
+      ],
+      "size": [
+        296.54723693731694,
+        347.2097958344766
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 28
+        }
+      ],
+      "outputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            29
+          ]
+        },
+        {
+          "name": "spectrogram",
+          "type": "IMAGE",
+          "links": [
+            30
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-AudioSR",
+        "ver": "6571eb6067eefab07d8a4c85ac931a75ee335c88",
+        "Node name for S&R": "AudioSR"
+      },
+      "widgets_values": [
+        50,
+        3.5,
+        3702159433,
+        "randomize",
+        "audiosr_speech_fp32.safetensors",
+        15,
+        0,
+        false,
+        true,
+        "sageattn",
+        "bf16",
+        false
+      ]
+    },
+    {
       "id": 4,
       "type": "PreviewAudio",
       "pos": [
@@ -51,7 +142,7 @@
         {
           "name": "audio",
           "type": "AUDIO",
-          "link": 23
+          "link": 29
         }
       ],
       "outputs": [],
@@ -68,45 +159,11 @@
       "widgets_values": []
     },
     {
-      "id": 5,
-      "type": "PreviewImage",
-      "pos": [
-        -2556.232924344642,
-        7378.132978557605
-      ],
-      "size": [
-        591.9823916810274,
-        399.6900133817717
-      ],
-      "flags": {},
-      "order": 4,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "link": 24
-        }
-      ],
-      "outputs": [],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.8.0",
-        "Node name for S&R": "PreviewImage",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.5.2"
-        }
-      },
-      "widgets_values": []
-    },
-    {
       "id": 3,
       "type": "LoadAudio",
       "pos": [
-        -2722.2414103146166,
-        6995.468037941284
+        -2719.034313548648,
+        6997.201597505205
       ],
       "size": [
         282.798828125,
@@ -121,7 +178,7 @@
           "name": "AUDIO",
           "type": "AUDIO",
           "links": [
-            22
+            28
           ]
         }
       ],
@@ -140,89 +197,28 @@
         null,
         null
       ]
-    },
-    {
-      "id": 11,
-      "type": "AudioSR",
-      "pos": [
-        -2429.7099055998156,
-        6994.819164294944
-      ],
-      "size": [
-        321.7209396060989,
-        342
-      ],
-      "flags": {},
-      "order": 2,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "audio",
-          "type": "AUDIO",
-          "link": 22
-        }
-      ],
-      "outputs": [
-        {
-          "name": "audio",
-          "type": "AUDIO",
-          "links": [
-            23
-          ]
-        },
-        {
-          "name": "spectrogram",
-          "type": "IMAGE",
-          "links": [
-            24
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "ComfyUI-AudioSR",
-        "ver": "ea3414b1a184d651a1a22f2781a7adf3b49bfb83",
-        "Node name for S&R": "AudioSR",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.5.2"
-        }
-      },
-      "widgets_values": [
-        50,
-        3.5,
-        633030950,
-        "fixed",
-        "audiosr_speech_fp32.safetensors",
-        15,
-        2,
-        true,
-        true,
-        "sdpa",
-        true
-      ]
     }
   ],
   "links": [
     [
-      22,
+      28,
       3,
       0,
-      11,
+      13,
       0,
       "AUDIO"
     ],
     [
-      23,
-      11,
+      29,
+      13,
       0,
       4,
       0,
       "AUDIO"
     ],
     [
-      24,
-      11,
+      30,
+      13,
       1,
       5,
       0,
@@ -235,14 +231,14 @@
     "workflowRendererVersion": "LG",
     "ue_links": [],
     "ds": {
-      "scale": 1.6350799082655996,
+      "scale": 0.8390545288824119,
       "offset": [
-        3120.40818468174,
-        -6889.8084057535025
+        3447.170569424816,
+        -6741.257873999632
       ]
     },
     "links_added_by_ue": [],
-    "frontendVersion": "1.35.9",
+    "frontendVersion": "1.38.13",
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,

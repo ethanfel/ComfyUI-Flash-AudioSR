@@ -45,7 +45,10 @@ from versatile_audio_super_resolution.audiosr.pipeline import (
     seed_everything
 )
 from versatile_audio_super_resolution.audiosr.latent_diffusion.models.ddpm import LatentDiffusion
-from versatile_audio_super_resolution.audiosr.latent_diffusion.modules.attention import set_attention_backend
+from versatile_audio_super_resolution.audiosr.latent_diffusion.modules.attention import (
+    set_attention_backend,
+    set_attention_dtype,
+)
 
 
 def check_interrupted():
@@ -299,6 +302,13 @@ class VASRNode:
     Versatile Audio Super Resolution node for ComfyUI.
 
     Upscales audio to 48kHz using the AudioSR latent diffusion model.
+    
+    PROCESS (why it's slow):
+    1. DIFFUSION: Runs ddim_steps (default 50) neural network passes to denoise/reconstruct audio
+    2. CHUNKING: Audio >10.24s splits into 15s chunks (configurable), each chunk runs full diffusion
+    3. STEREO: Left/right channels processed separately (2x time)
+    
+    Example: 60s stereo = 4 chunks × 2 channels × 50 steps = 400 NN passes
     """
 
     DESCRIPTION = "Upscale audio to 48kHz using Versatile Audio Super Resolution (AudioSR)"
@@ -379,9 +389,13 @@ class VASRNode:
                     "default": True,
                     "tooltip": "Generate before/after spectrogram comparison image"
                 }),
-                "attention_backend": (["sdpa", "eager"], {
+                "attention_backend": (["sdpa", "sageattn", "eager"], {
                     "default": "sdpa",
-                    "tooltip": "Attention computation backend: sdpa (PyTorch native, fastest & recommended), eager (einsum-based, most compatible)"
+                    "tooltip": "Attention backend: sdpa (PyTorch native), sageattn (fastest, requires fp16/bf16 dtype), eager (most compatible)"
+                }),
+                "dtype": (["fp32", "fp16", "bf16"], {
+                    "default": "fp32",
+                    "tooltip": "Compute dtype: fp32 (default, most compatible), fp16 (faster, less VRAM), bf16 (best on RTX 30/40 series). SageAttention requires fp16/bf16."
                 }),
                 "use_torch_compile": ("BOOLEAN", {
                     "default": False,
@@ -408,6 +422,7 @@ class VASRNode:
         unload_model: bool = False,
         show_spectrogram: bool = True,
         attention_backend: str = "sdpa",
+        dtype: str = "fp32",
         use_torch_compile: bool = False
     ):
         """
@@ -423,13 +438,23 @@ class VASRNode:
             overlap: Overlap duration in seconds (default:2s from main repo)
             unload_model: Unload model from GPU memory after generation
             show_spectrogram: Generate before/after spectrogram comparison
-            attention_backend: Attention backend to use (sdpa, eager, flash_attention, sageattn)
-            use_torch_compile: Use torch.compile() to optimize model for faster inference (FP32 only)
+            attention_backend: Attention backend to use (sdpa, sageattn, eager)
+            dtype: Compute dtype (fp32, fp16, bf16). SageAttention requires fp16/bf16.
+            use_torch_compile: Use torch.compile() to optimize model for faster inference
 
         Returns:
             tuple: (audio, spectrogram) - ComfyUI audio format at 48kHz and optional spectrogram image
         """
         global _model_cache, _model_device, _model_path, _model_use_compile
+        
+        # SageAttention requires fp16/bf16 - auto fallback to sdpa for fp32
+        if attention_backend == "sageattn" and dtype == "fp32":
+            print("[AudioSR] SageAttention requires fp16/bf16 dtype - auto-switching to sdpa")
+            attention_backend = "sdpa"
+        
+        # Set attention dtype (None for fp32 to use model's native dtype)
+        attention_dtype = None if dtype == "fp32" else dtype
+        set_attention_dtype(attention_dtype)
 
         # Unpack ComfyUI audio format: can be dict {'waveform': tensor, 'sample_rate': int}
         # or tuple (waveform, sample_rate) for backwards compatibility
@@ -545,7 +570,7 @@ class VASRNode:
 
         # Set attention backend before processing
         set_attention_backend(attention_backend)
-        print(f"[AudioSR] Settings: steps={ddim_steps}, guidance={guidance_scale}, seed={seed}, attention={attention_backend}, compile={use_torch_compile}")
+        print(f"[AudioSR] Settings: steps={ddim_steps}, guidance={guidance_scale}, seed={seed}, attention={attention_backend}, dtype={dtype}, compile={use_torch_compile}")
 
         # Wrap processing in interrupt exception handler
         try:

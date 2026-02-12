@@ -39,6 +39,28 @@ Native ComfyUI node for **AudioSR (Versatile Audio Super Resolution)** - Upscale
 
 ## ⚡ Performance Optimizations
 
+### Attention Backends
+
+The node supports multiple attention computation backends for optimal performance:
+
+| Backend | Speed | Requirements | Best For |
+|---------|-------|--------------|----------|
+| **sdpa** | Fast | PyTorch 2.0+ | Default, most compatible |
+| **sageattn** | Fastest | fp16/bf16 dtype, `pip install sageattention` | RTX 30/40 series, maximum speed |
+| **eager** | Slowest | None | Debugging, maximum compatibility |
+
+**SageAttention**: GPU-optimized attention kernels with automatic architecture detection (SM80+ required). Falls back gracefully if not installed or incompatible.
+
+### Compute Dtypes
+
+| Dtype | VRAM | Speed | Notes |
+|-------|------|-------|-------|
+| **fp32** | Higher | Baseline | Default, most accurate |
+| **fp16** | Lower | Faster | Requires GPU with good FP16 support |
+| **bf16** | Lower | Fastest | Best on RTX 30/40 series (Ampere+) |
+
+**Note**: SageAttention requires fp16 or bf16 dtype. Selecting fp32 with SageAttention auto-falls back to sdpa.
+
 ### torch.compile Mode
 
 The node includes an optional `use_torch_compile` toggle that applies PyTorch's `torch.compile()` optimization to the model for faster inference.
@@ -213,7 +235,8 @@ Upscale audio to 48kHz using the AudioSR latent diffusion model. The model analy
 | **overlap** | FLOAT | 0.0-5.0 | 0.0 | Overlap in seconds between chunks (helps smooth transitions, 2.0-3.0 recommended for long audio) |
 | **unload_model** | BOOLEAN | - | False | Free VRAM after generation (slower next run) |
 | **show_spectrogram** | BOOLEAN | - | True | Generate before/after spectrogram image |
-| **attention_backend** | COMBO | - | sdpa | Attention backend: sdpa (PyTorch native, fastest), eager (einsum-based) |
+| **attention_backend** | COMBO | - | sdpa | Attention: sdpa (fast), sageattn (fastest, requires fp16/bf16), eager (compatible) |
+| **dtype** | COMBO | - | fp32 | Compute dtype: fp32 (default), fp16 (faster), bf16 (RTX 30/40 series) |
 | **use_torch_compile** | BOOLEAN | - | False | Use torch.compile() for 20-30% speed boost (FP32 only, requires warmup) |
 
 ### Outputs
@@ -430,6 +453,16 @@ Enable PyTorch's torch.compile() optimization for faster inference.
 3. First run always includes compilation overhead - try second run
 4. Check console for error messages (some operations not supported)
 
+### SageAttention Not Working
+
+**Symptom**: `sageattn` selected but falling back to sdpa
+
+**Solutions**:
+1. Install SageAttention: `pip install sageattention`
+2. Ensure `dtype` is set to `fp16` or `bf16` (fp32 auto-falls back)
+3. Check GPU architecture (requires SM80+ = RTX 30 series or newer)
+4. Check console message for specific fallback reason
+
 ### Model Reloaded Repeatedly
 
 **Symptom**: Model recompiles every time, defeating performance gains
@@ -499,6 +532,7 @@ The spectrogram uses the **magma** colormap:
 - **Long Audio**: Let the auto-chunking handle files >10 seconds
 - **VRAM**: Enable `unload_model` if you need GPU memory for other tasks
 - **Speed Optimization**: Enable `use_torch_compile` when processing multiple files or long audio (FP32 models only)
+- **Maximum Speed**: Use `attention_backend: sageattn` + `dtype: bf16` on RTX 30/40 series (install: `pip install sageattention`)
 - **Smooth Transitions**: Use `overlap: 2.0` for seamless chunk stitching on long audio
 - **Chunk Size**: Default 15s is optimized; increase to 20-30s for fewer chunks if VRAM allows
 
@@ -517,6 +551,12 @@ The spectrogram uses the **magma** colormap:
 ---
 
 ## 📝 Changelog
+
+### Version 1.1.0
+
+- ✅ **SageAttention support**: Added `sageattn` attention backend with GPU-arch auto-detection (SM80+). Falls back to sdpa if not installed or incompatible.
+- ✅ **Dtype selector**: New `dtype` dropdown (fp32/fp16/bf16) to control compute precision. SageAttention auto-falls back to sdpa when fp32 is selected.
+- ✅ Added `.gitignore` for `__pycache__` and common Python artifacts
 
 ### Version 1.0.6
 

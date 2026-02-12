@@ -7,9 +7,19 @@ from einops import rearrange, repeat
 
 from versatile_audio_super_resolution.audiosr.latent_diffusion.modules.diffusionmodules.util import checkpoint
 
-# Global attention backend setting
-# Options: 'sdpa', 'eager', 'flash_attention', 'sageattn'
+try:
+    from versatile_audio_super_resolution.audiosr.latent_diffusion.modules.sage_attention import (
+        SAGE_ATTENTION_AVAILABLE,
+        sageattn_forward,
+        check_sage_compatibility,
+    )
+except ImportError:
+    SAGE_ATTENTION_AVAILABLE = False
+    sageattn_forward = None
+    check_sage_compatibility = lambda: (False, "Module not found")
+
 ATTENTION_BACKEND = 'sdpa'
+ATTENTION_DTYPE = None
 
 def set_attention_backend(backend):
     """Set the global attention backend."""
@@ -19,6 +29,15 @@ def set_attention_backend(backend):
 def get_attention_backend():
     """Get the current attention backend."""
     return ATTENTION_BACKEND
+
+def set_attention_dtype(dtype):
+    """Set the global attention dtype override."""
+    global ATTENTION_DTYPE
+    ATTENTION_DTYPE = dtype
+
+def get_attention_dtype():
+    """Get the current attention dtype override."""
+    return ATTENTION_DTYPE
 
 
 def exists(val):
@@ -439,36 +458,9 @@ class CrossAttention(nn.Module):
                 out = rearrange(out, "b h n d -> b n (h d)", h=h)
 
         elif backend == 'sageattn':
-            # Try SageAttention, fallback to SDPA
-            try:
-                import sageattention
-                q_sage = rearrange(q, "(b h) n d -> b h n d", h=h)
-                k_sage = rearrange(k, "(b h) n d -> b h n d", h=h)
-                v_sage = rearrange(v, "(b h) n d -> b h n d", h=h)
-
-                # Check dtype - SageAttention only supports fp16/bf16
-                supported_dtype = q_sage.dtype in (torch.float16, torch.bfloat16)
-
-                if not exists(mask) and supported_dtype:
-                    out = sageattention.sageattn(q_sage, k_sage, v_sage)
-                    out = rearrange(out, "b h n d -> b n (h d)", h=h)
-                else:
-                    # Fallback to SDPA for masked attention or unsupported dtype
-                    if not supported_dtype and not exists(mask):
-                        print("[SageAttention] Falling back to SDPA (requires fp16/bf16, got {})".format(q_sage.dtype))
-                    q_sdpa = rearrange(q, "(b h) n d -> b h n d", h=h)
-                    k_sdpa = rearrange(k, "(b h) n d -> b h n d", h=h)
-                    v_sdpa = rearrange(v, "(b h) n d -> b h n d", h=h)
-                    if exists(mask):
-                        mask = rearrange(mask, "b ... -> b (...)")
-                        mask = repeat(mask, "b j -> (b h) () j", h=h)
-                        max_neg_value = -torch.finfo(q_sdpa.dtype).max
-                        mask = mask * max_neg_value
-                        mask = rearrange(mask, "(b h) i j -> b h i j", h=h)
-                    out = F.scaled_dot_product_attention(q_sdpa, k_sdpa, v_sdpa, attn_mask=mask if exists(mask) else None)
-                    out = rearrange(out, "b h n d -> b n (h d)", h=h)
-            except (ImportError, AttributeError):
-                # Fallback to SDPA if sageattention not available
+            # SageAttention with GPU-arch-specific kernels
+            if not SAGE_ATTENTION_AVAILABLE:
+                print("[SageAttention] Not installed, falling back to SDPA (pip install sageattention)")
                 q_sdpa = rearrange(q, "(b h) n d -> b h n d", h=h)
                 k_sdpa = rearrange(k, "(b h) n d -> b h n d", h=h)
                 v_sdpa = rearrange(v, "(b h) n d -> b h n d", h=h)
@@ -478,11 +470,34 @@ class CrossAttention(nn.Module):
                     max_neg_value = -torch.finfo(q_sdpa.dtype).max
                     mask = mask * max_neg_value
                     mask = rearrange(mask, "(b h) i j -> b h i j", h=h)
-                out = F.scaled_dot_product_attention(
-                    q_sdpa, k_sdpa, v_sdpa,
-                    attn_mask=mask if exists(mask) else None,
-                    dropout_p=0.0,
-                )
+                out = F.scaled_dot_product_attention(q_sdpa, k_sdpa, v_sdpa, attn_mask=mask if exists(mask) else None)
+                out = rearrange(out, "b h n d -> b n (h d)", h=h)
+            elif exists(mask):
+                print("[SageAttention] Masked attention not supported, falling back to SDPA")
+                q_sdpa = rearrange(q, "(b h) n d -> b h n d", h=h)
+                k_sdpa = rearrange(k, "(b h) n d -> b h n d", h=h)
+                v_sdpa = rearrange(v, "(b h) n d -> b h n d", h=h)
+                mask = rearrange(mask, "b ... -> b (...)")
+                mask = repeat(mask, "b j -> (b h) () j", h=h)
+                max_neg_value = -torch.finfo(q_sdpa.dtype).max
+                mask = mask * max_neg_value
+                mask = rearrange(mask, "(b h) i j -> b h i j", h=h)
+                out = F.scaled_dot_product_attention(q_sdpa, k_sdpa, v_sdpa, attn_mask=mask)
+                out = rearrange(out, "b h n d -> b n (h d)", h=h)
+            else:
+                q_sage = rearrange(q, "(b h) n d -> b h n d", h=h)
+                k_sage = rearrange(k, "(b h) n d -> b h n d", h=h)
+                v_sage = rearrange(v, "(b h) n d -> b h n d", h=h)
+                
+                dtype_override = get_attention_dtype()
+                if dtype_override is not None:
+                    target_dtype = getattr(torch, dtype_override, None)
+                    if target_dtype is not None and q_sage.dtype != target_dtype:
+                        q_sage = q_sage.to(target_dtype)
+                        k_sage = k_sage.to(target_dtype)
+                        v_sage = v_sage.to(target_dtype)
+                
+                out = sageattn_forward(q_sage, k_sage, v_sage, is_causal=False)
                 out = rearrange(out, "b h n d -> b n (h d)", h=h)
 
         else:  # backend == 'eager' or default
