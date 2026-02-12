@@ -552,6 +552,10 @@ The spectrogram uses the **magma** colormap:
 
 ## 📝 Changelog
 
+### Version 1.1.1
+
+- ✅ **Fixed tensor dimension mismatch**: Small chunks (<5.12s) now get padded to minimum size before processing, then trimmed to original length. Fixes "Expected size 64 but got size 63" errors on audio with uneven chunk splits.
+
 ### Version 1.1.0
 
 - ✅ **SageAttention support**: Added `sageattn` attention backend with GPU-arch auto-detection (SM80+). Falls back to sdpa if not installed or incompatible.

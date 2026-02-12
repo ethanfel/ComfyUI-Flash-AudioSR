@@ -643,26 +643,42 @@ class VASRNode:
                         overlap_samples = int(overlap * sr)  # overlap is now in seconds
                         output_chunk_samples = int(chunk_size * 48000)
                         output_overlap_samples = int(overlap * 48000)  # overlap at 48kHz output
+                        
+                        # Minimum chunk duration to avoid tensor dimension mismatches
+                        # Model internally uses 5.12s blocks; ensure chunks are at least this size
+                        MIN_CHUNK_SAMPLES = int(5.12 * sr)
 
                         chunks = []
                         start = 0
                         while start < num_samples:
                             end = min(start + chunk_samples, num_samples)
                             chunk = channel[start:end]
-                            chunks.append((chunk, start, end))
+                            
+                            # Pad small final chunks to minimum size to avoid dimension errors
+                            if len(chunk) < MIN_CHUNK_SAMPLES:
+                                pad_len = MIN_CHUNK_SAMPLES - len(chunk)
+                                chunk = np.pad(chunk, (0, pad_len), mode='constant')
+                                # Adjust end to reflect padded length for output positioning
+                                actual_end = end  # Original end for output positioning
+                                is_padded = True
+                            else:
+                                actual_end = end
+                                is_padded = False
+                            
+                            chunks.append((chunk, start, end, actual_end, is_padded))
                             start += chunk_samples - overlap_samples
 
                         # Process chunks with overlap
                         reconstructed = np.zeros(int(duration_sec * 48000))
                         weight_sum = np.zeros(int(duration_sec * 48000))
 
-                        for i, (chunk, orig_start, orig_end) in enumerate(chunks):
+                        for i, (chunk, orig_start, orig_end, actual_end, is_padded) in enumerate(chunks):
                             # Check for interrupt before each chunk
                             check_interrupted()
 
                             print(f"[AudioSR] {channel_name} chunk {i+1}/{len(chunks)} ({current_chunk+1}/{total_chunks} overall)")
 
-                            chunk_duration = (orig_end - orig_start) / sr
+                            chunk_duration = len(chunk) / sr  # Use actual chunk length (may be padded)
                             batch, _ = make_batch_for_super_resolution(
                                 None,
                                 waveform=np.expand_dims(chunk, 0)
@@ -691,11 +707,15 @@ class VASRNode:
                                 output_chunk_np = output_chunk_np.flatten()
 
                             # Calculate output position (time-scaled)
-                            # FIX: Position based on INPUT boundaries, not model output length
+                            # Use original (non-padded) boundaries for output positioning
                             out_start = int(orig_start / sr * 48000)
                             expected_output_len = int((orig_end - orig_start) / sr * 48000)
                             out_end = min(out_start + expected_output_len, reconstructed.shape[0])
                             slice_len = out_end - out_start
+
+                            # If chunk was padded, trim output to original expected length
+                            if is_padded:
+                                output_chunk_np = output_chunk_np[:expected_output_len]
 
                             # Truncate or pad to expected output length (matches input boundaries)
                             if output_chunk_np.shape[0] > slice_len:
