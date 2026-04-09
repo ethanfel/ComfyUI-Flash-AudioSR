@@ -95,12 +95,12 @@ def _download_flashsr_weights(model_dir: str) -> None:
         if not dest.exists():
             print(f"[ModelLoader] Downloading {filename} from {_FLASHSR_HF_REPO}...")
             try:
-                hf_hub_download(repo_id=_FLASHSR_HF_REPO, filename=filename, local_dir=model_dir)
+                hf_hub_download(repo_id=_FLASHSR_HF_REPO, filename=filename, local_dir=model_dir, repo_type="dataset")
                 print(f"[ModelLoader] Downloaded {filename}")
             except Exception as e:
                 raise RuntimeError(
                     f"Failed to download {filename} from {_FLASHSR_HF_REPO}.\n"
-                    f"The repo may be private. Set HF_TOKEN env var or place files manually in:\n"
+                    f"Place files manually in:\n"
                     f"  {model_dir}\n"
                     f"Required files: {_FLASHSR_FILES}\n"
                     f"Error: {e}"
