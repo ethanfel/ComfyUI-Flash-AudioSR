@@ -21,6 +21,65 @@ Native ComfyUI node for **AudioSR (Versatile Audio Super Resolution)** - Upscale
 
 **Based on the original AudioSR implementation by [Haohe Liu](https://github.com/haoheliu) et al.**
 
+---
+
+## New Nodes: AudioSRModelLoader and AudioSRSampler
+
+Version 1.2.0 adds two new nodes that separate model loading from inference, enabling greater flexibility and cleaner workflows. The original `AudioSR` node remains fully functional (backward compatible).
+
+### Recommended Workflow
+
+```
+LoadAudio → AudioSRModelLoader → AudioSRSampler → PreviewAudio
+```
+
+### AudioSRModelLoader
+
+Loads and caches an AudioSR or FlashSR model. Outputs a model handle passed to `AudioSRSampler`.
+
+| Input | Values | Description |
+|-------|--------|-------------|
+| `model_type` | `AudioSR` / `FlashSR` | Which model family to load |
+| `checkpoint` | filename | Model checkpoint to use |
+| `device` | `cuda` / `cpu` | Inference device |
+| `dtype` | `fp32` / `fp16` / `bf16` | Compute precision |
+| `auto_download` | toggle | Download missing models automatically |
+
+Models are downloaded to:
+- **AudioSR**: `ComfyUI/models/AudioSR/`
+- **FlashSR**: `ComfyUI/models/flashsr/`
+
+### AudioSRSampler
+
+Runs super-resolution on the input audio using the loaded model.
+
+**Shared settings (AudioSR and FlashSR):**
+
+| Setting | Description |
+|---------|-------------|
+| `chunk_size` | Length of each processing chunk (seconds) |
+| `overlap` | Overlap between chunks to avoid boundary artifacts |
+| `attention_backend` | `sdpa` / `sageattn` / `eager` |
+| `unload_model` | Free GPU memory after processing |
+| `show_spectrogram` | Display before/after spectrogram comparison |
+
+**AudioSR-only settings:**
+
+| Setting | Description |
+|---------|-------------|
+| `ddim_steps` | Diffusion steps (higher = better quality, slower) |
+| `guidance_scale` | Classifier-free guidance strength |
+| `seed` | Reproducibility seed |
+
+**FlashSR-only settings:**
+
+| Setting | Description |
+|---------|-------------|
+| `output_sr` | Target output sample rate |
+| `lowpass_input` | Apply lowpass filter to input before processing |
+
+---
+
 ## 🎯 Key Features
 
 - **🎧 Audio Super Resolution**: Upsample low-quality audio to 48kHz with enhanced high frequencies
