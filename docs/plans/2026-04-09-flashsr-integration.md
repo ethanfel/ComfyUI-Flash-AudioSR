@@ -114,6 +114,12 @@ ComfyUI/models/AudioSR/       ← VASR checkpoints (.safetensors, .pth, .bin)
 ComfyUI/models/flashsr/       ← FlashSR weights (student_ldm.pth, sr_vocoder.pth, vae.pth)
 ```
 
+### Step 0: Create tests directory
+
+```bash
+mkdir -p tests && touch tests/__init__.py
+```
+
 ### Step 1: Write the failing tests
 
 Create `tests/test_model_loader.py`:
@@ -220,13 +226,24 @@ try:
 except ImportError:
     HAS_HF_HUB = False
 
-_FLASHSR_HF_REPO = "jakeoneijk/FlashSR_weights"
+_FLASHSR_HF_REPO = "jakeoneijk/FlashSR_weights"  # may be private — see NOTE below
 _FLASHSR_FILES = ["student_ldm.pth", "sr_vocoder.pth", "vae.pth"]
 
-_VASR_HF_REPO = "haoheliu/audiosr"
-_VASR_FILES = {
-    "basic": "basic.pth",
-    "speech": "speech.pth",
+# NOTE: jakeoneijk/FlashSR_weights returned 404 during planning. If it's private/gated,
+# auto-download will fail with a clear error. Users must either provide an HF token
+# (set HF_TOKEN env var) or place the files manually in ComfyUI/models/flashsr/.
+# Verify the correct repo name before implementing by checking the Egregora plugin source.
+
+_VASR_HF_REPO = "drbaph/AudioSR"
+# Files live in an AudioSR/ subfolder inside the repo:
+_VASR_HF_FILES = {
+    "basic":  "AudioSR/audiosr_basic_fp32.safetensors",
+    "speech": "AudioSR/audiosr_speech_fp32.safetensors",
+}
+# Local names after download (flat — no subfolder in our models dir):
+_VASR_LOCAL_FILES = {
+    "basic":  "audiosr_basic_fp32.safetensors",
+    "speech": "audiosr_speech_fp32.safetensors",
 }
 
 # Global model cache — keyed by cache_key
@@ -282,16 +299,24 @@ def _download_vasr_weights(model_dir: str, variant: str) -> str:
             "huggingface_hub not installed. Run: pip install huggingface_hub"
         )
     os.makedirs(model_dir, exist_ok=True)
-    filename = _VASR_FILES.get(variant, "basic.pth")
-    dest = Path(model_dir) / filename
+    hf_filename = _VASR_HF_FILES.get(variant, _VASR_HF_FILES["basic"])
+    local_name = _VASR_LOCAL_FILES.get(variant, _VASR_LOCAL_FILES["basic"])
+    dest = Path(model_dir) / local_name
     if not dest.exists():
-        print(f"[ModelLoader] Downloading {filename} from {_VASR_HF_REPO}...")
-        hf_hub_download(
+        print(f"[ModelLoader] Downloading {local_name} from {_VASR_HF_REPO}...")
+        # hf_filename is "AudioSR/foo.safetensors"; use parent of model_dir as local_dir
+        # so the file lands at model_dir/foo.safetensors (not model_dir/AudioSR/foo.safetensors)
+        downloaded = hf_hub_download(
             repo_id=_VASR_HF_REPO,
-            filename=filename,
-            local_dir=model_dir,
+            filename=hf_filename,
+            local_dir=str(Path(model_dir).parent),
         )
-        print(f"[ModelLoader] Downloaded {filename}")
+        # hf_hub_download returns the actual path; move to flat location if needed
+        downloaded_path = Path(downloaded)
+        if downloaded_path != dest:
+            import shutil
+            shutil.move(str(downloaded_path), str(dest))
+        print(f"[ModelLoader] Downloaded {local_name}")
     return str(dest)
 
 
@@ -367,15 +392,25 @@ class AudioSRModelLoader:
 
     @classmethod
     def INPUT_TYPES(cls):
+        # Scan AudioSR model dir for existing checkpoints; prepend auto-download
+        vasr_dir = get_model_dir("vasr")
+        found = []
+        if os.path.isdir(vasr_dir):
+            found = sorted(
+                f for f in os.listdir(vasr_dir)
+                if f.endswith((".safetensors", ".pth", ".bin", ".ckpt"))
+            )
+        checkpoint_options = ["auto-download"] + found if found else ["auto-download", "basic", "speech"]
+
         return {
             "required": {
                 "model_type": (["AudioSR", "FlashSR"], {
                     "default": "AudioSR",
                     "tooltip": "AudioSR: versatile audio super-resolution. FlashSR: fast music-focused upscaler.",
                 }),
-                "checkpoint": (["auto-download", "basic", "speech"], {
-                    "default": "auto-download",
-                    "tooltip": "For AudioSR: basic or speech checkpoint. FlashSR always downloads all 3 weights.",
+                "checkpoint": (checkpoint_options, {
+                    "default": checkpoint_options[0],
+                    "tooltip": "For AudioSR: select a checkpoint or use auto-download. FlashSR always downloads all 3 weights.",
                 }),
                 "device": (["cuda", "cpu"], {
                     "default": "cuda",
@@ -427,19 +462,34 @@ class AudioSRModelLoader:
             else:
                 # AudioSR / VASR
                 if checkpoint == "auto-download":
+                    # Default to basic; download if needed
                     variant = "basic"
-                else:
+                    ckpt_path = str(Path(model_dir) / _VASR_LOCAL_FILES["basic"])
+                    if not os.path.exists(ckpt_path):
+                        if auto_download:
+                            ckpt_path = _download_vasr_weights(model_dir, variant)
+                        else:
+                            raise FileNotFoundError(
+                                f"Model not found: {ckpt_path}\n"
+                                f"Enable auto_download or place the file manually."
+                            )
+                elif checkpoint in _VASR_LOCAL_FILES:
+                    # Named variant (basic / speech) — may need download
                     variant = checkpoint
-
-                ckpt_path = str(Path(model_dir) / _VASR_FILES.get(variant, "basic.pth"))
-                if not os.path.exists(ckpt_path):
-                    if auto_download:
-                        ckpt_path = _download_vasr_weights(model_dir, variant)
-                    else:
-                        raise FileNotFoundError(
-                            f"Model not found: {ckpt_path}\n"
-                            f"Enable auto_download or place the file manually."
-                        )
+                    ckpt_path = str(Path(model_dir) / _VASR_LOCAL_FILES[variant])
+                    if not os.path.exists(ckpt_path):
+                        if auto_download:
+                            ckpt_path = _download_vasr_weights(model_dir, variant)
+                        else:
+                            raise FileNotFoundError(
+                                f"Model not found: {ckpt_path}\n"
+                                f"Enable auto_download or place the file manually."
+                            )
+                else:
+                    # User selected a scanned file from the model dir
+                    ckpt_path = str(Path(model_dir) / checkpoint)
+                    if not os.path.exists(ckpt_path):
+                        raise FileNotFoundError(f"Model not found: {ckpt_path}")
                 models = _load_vasr_model(ckpt_path, device, torch_dtype)
 
             result = {
@@ -836,14 +886,20 @@ def _run_flashsr(
     waveform_48k = _resample(waveform, sr, 48000)
 
     # Optional lowpass before inference
+    # lowpass.py exports: lowpass_filter(audio, cutoff_freq, sample_rate) — verify exact
+    # signature from versatile_audio_super_resolution/audiosr/lowpass.py before using.
     if lowpass_input:
         try:
             from versatile_audio_super_resolution.audiosr.lowpass import lowpass_filter
+            import inspect
+            sig = inspect.signature(lowpass_filter)
+            params = list(sig.parameters.keys())
+            # Call with positional args to avoid kwarg name assumptions
             waveform_48k = np.stack(
-                [lowpass_filter(ch, sr=48000) for ch in waveform_48k], axis=0
+                [lowpass_filter(ch, 48000) for ch in waveform_48k], axis=0
             )
-        except ImportError:
-            print("[Sampler] lowpass_filter not available — skipping")
+        except Exception as e:
+            print(f"[Sampler] lowpass_filter unavailable or failed ({e}) — skipping")
 
     # Use FlashSR's native chunk size (5.12s) unless overridden by user
     # We honour chunk_size and overlap from the node settings
@@ -961,7 +1017,11 @@ class AudioSRSampler:
         unload_model: bool = False,
         show_spectrogram: bool = True,
     ):
-        from vasr_node import generate_spectrogram_comparison
+        # Use relative import when running as a package (ComfyUI), bare import otherwise (tests)
+        try:
+            from .vasr_node import generate_spectrogram_comparison
+        except ImportError:
+            from vasr_node import generate_spectrogram_comparison
 
         waveform, sr = _normalize_audio_input(audio)
         original_waveform = waveform.copy()
@@ -1024,7 +1084,10 @@ class AudioSRSampler:
 
 def _evict_from_cache(cache_key: str):
     """Remove a model from the loader's cache and free VRAM."""
-    from model_loader import _model_cache, _cache_lock
+    try:
+        from .model_loader import _model_cache, _cache_lock
+    except ImportError:
+        from model_loader import _model_cache, _cache_lock
     with _cache_lock:
         if cache_key in _model_cache:
             entry = _model_cache.pop(cache_key)
