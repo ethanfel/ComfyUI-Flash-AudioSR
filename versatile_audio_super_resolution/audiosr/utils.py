@@ -13,10 +13,7 @@ import soundfile as sf
 import time
 import wave
 import torchaudio
-try:
-    import progressbar2 as progressbar
-except ImportError:
-    import progressbar
+from tqdm import tqdm
 from librosa.filters import mel as librosa_mel_fn
 from versatile_audio_super_resolution.audiosr.lowpass import lowpass
 
@@ -373,14 +370,13 @@ class MyProgressBar:
 
     def __call__(self, block_num, block_size, total_size):
         if not self.pbar:
-            self.pbar = progressbar.ProgressBar(maxval=total_size)
-            self.pbar.start()
+            self.pbar = tqdm(total=total_size, unit="B", unit_scale=True)
 
         downloaded = block_num * block_size
         if downloaded < total_size:
-            self.pbar.update(downloaded)
+            self.pbar.update(block_size)
         else:
-            self.pbar.finish()
+            self.pbar.close()
 
 
 def download_checkpoint(checkpoint_name="basic"):

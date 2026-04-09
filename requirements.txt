@@ -25,7 +25,6 @@ matplotlib
 # Utilities
 numpy
 pyyaml
-progressbar2
 tqdm
 ftfy
 
