@@ -118,20 +118,27 @@ def _download_vasr_weights(model_dir: str, variant: str) -> str:
     dest = Path(model_dir) / local_name
     if not dest.exists():
         print(f"[ModelLoader] Downloading {local_name} from {_VASR_HF_REPO}...")
-        # hf_filename has subfolder "AudioSR/"; use parent dir so file lands flat in model_dir
-        downloaded = hf_hub_download(
-            repo_id=_VASR_HF_REPO,
-            filename=hf_filename,
-            local_dir=str(Path(model_dir).parent),
-        )
-        downloaded_path = Path(downloaded)
-        if downloaded_path.resolve() != dest.resolve():
-            shutil.move(str(downloaded_path), str(dest))
-        print(f"[ModelLoader] Downloaded {local_name}")
+        try:
+            # hf_filename has subfolder "AudioSR/"; use parent dir so file lands flat in model_dir
+            downloaded = hf_hub_download(
+                repo_id=_VASR_HF_REPO,
+                filename=hf_filename,
+                local_dir=str(Path(model_dir).parent),
+            )
+            downloaded_path = Path(downloaded)
+            if downloaded_path.resolve() != dest.resolve():
+                shutil.move(str(downloaded_path), str(dest))
+            print(f"[ModelLoader] Downloaded {local_name}")
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to download {local_name} from {_VASR_HF_REPO}.\n"
+                f"Place the file manually in: {model_dir}\n"
+                f"Error: {e}"
+            )
     return str(dest)
 
 
-def _load_vasr_model(ckpt_path: str, device: str, torch_dtype: torch.dtype) -> dict:
+def _load_vasr_model(ckpt_path: str, device: str, torch_dtype: torch.dtype, variant: str = "basic") -> dict:
     import sys
     _cur = os.path.dirname(os.path.abspath(__file__))
     if _cur not in sys.path:
@@ -140,7 +147,7 @@ def _load_vasr_model(ckpt_path: str, device: str, torch_dtype: torch.dtype) -> d
     from versatile_audio_super_resolution.audiosr.utils import default_audioldm_config
     from versatile_audio_super_resolution.audiosr.latent_diffusion.models.ddpm import LatentDiffusion
 
-    config = default_audioldm_config("basic")
+    config = default_audioldm_config(variant)
     config["model"]["params"]["device"] = device
     model = LatentDiffusion(**config["model"]["params"])
 
@@ -284,10 +291,11 @@ class AudioSRModelLoader:
                                 f"Model not found: {ckpt_path}\nEnable auto_download or place the file manually."
                             )
                 else:
+                    variant = "basic"
                     ckpt_path = str(Path(model_dir) / checkpoint)
                     if not os.path.exists(ckpt_path):
                         raise FileNotFoundError(f"Model not found: {ckpt_path}")
-                models = _load_vasr_model(ckpt_path, device, torch_dtype)
+                models = _load_vasr_model(ckpt_path, device, torch_dtype, variant=variant)
 
             result = {
                 "type": model_type.lower(),

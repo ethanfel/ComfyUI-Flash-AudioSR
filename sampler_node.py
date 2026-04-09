@@ -24,6 +24,14 @@ _current_dir = os.path.dirname(os.path.abspath(__file__))
 if _current_dir not in sys.path:
     sys.path.insert(0, _current_dir)
 
+try:
+    from .vasr_node import generate_spectrogram_comparison as _gen_spectrogram
+except ImportError:
+    try:
+        from vasr_node import generate_spectrogram_comparison as _gen_spectrogram
+    except ImportError:
+        _gen_spectrogram = None
+
 FLASHSR_CHUNK_SAMPLES = 245760  # 5.12s × 48000 — hard constraint from FlashSR model
 
 
@@ -95,6 +103,8 @@ def _run_vasr(waveform, sr, model_obj, ddim_steps, guidance_scale, seed, chunk_s
     sr = 48000
     latent_diffusion = model_obj["latent_diffusion"]
     num_samples = waveform.shape[1]
+    if num_samples == 0:
+        return np.zeros((waveform.shape[0], 0), dtype=np.float32)
     duration_sec = num_samples / sr
 
     processed = []
@@ -114,6 +124,10 @@ def _run_vasr(waveform, sr, model_obj, ddim_steps, guidance_scale, seed, chunk_s
         else:
             chunk_s = int(chunk_size * sr)
             overlap_s = int(overlap * sr)
+            if overlap_s >= chunk_s:
+                raise ValueError(
+                    f"overlap ({overlap}s) must be less than chunk_size ({chunk_size}s)"
+                )
             out_overlap_s = int(overlap * 48000)
             MIN_CHUNK = int(5.12 * sr)
             chunks = []
@@ -210,7 +224,14 @@ def _run_flashsr(waveform, sr, model_obj, output_sr, lowpass_input, chunk_size, 
     # Use FlashSR native chunk size (5.12s = 245760 samples at 48kHz)
     # User chunk_size/overlap are ignored for FlashSR — chunk size is fixed by the model
     num_samples = waveform_48k.shape[1]
+    if num_samples == 0:
+        return np.zeros((waveform_48k.shape[0], 0), dtype=np.float32)
     processed = []
+
+    # Cache device/dtype once before the channel loop
+    _model_param = next(flashsr_model.parameters())
+    _model_device = _model_param.device
+    _model_dtype = _model_param.dtype
 
     for channel in [waveform_48k[i] for i in range(waveform_48k.shape[0])]:
         _check_interrupted()
@@ -228,8 +249,7 @@ def _run_flashsr(waveform, sr, model_obj, output_sr, lowpass_input, chunk_size, 
         out_chunks = []
         for i in range(n_chunks):
             chunk = channel_padded[i * FLASHSR_CHUNK_SAMPLES:(i + 1) * FLASHSR_CHUNK_SAMPLES]
-            model_param = next(flashsr_model.parameters())
-            chunk_tensor = torch.from_numpy(chunk).unsqueeze(0).to(dtype=model_param.dtype, device=model_param.device)
+            chunk_tensor = torch.from_numpy(chunk).unsqueeze(0).to(dtype=_model_dtype, device=_model_device)
             # lowpass_input=False: we handle lowpass ourselves above; don't apply again inside model
             with torch.no_grad():
                 out = flashsr_model(chunk_tensor, num_steps=1, lowpass_input=False)
@@ -322,11 +342,6 @@ class AudioSRSampler:
             output_sr="48000", lowpass_input=False, chunk_size=10.24, overlap=0.5,
             attention_backend="sdpa", unload_model=False, show_spectrogram=True):
 
-        try:
-            from .vasr_node import generate_spectrogram_comparison
-        except ImportError:
-            from vasr_node import generate_spectrogram_comparison
-
         waveform, sr = _normalize_audio_input(audio)
         original_waveform = waveform.copy()
         original_sr = sr
@@ -358,8 +373,8 @@ class AudioSRSampler:
             _evict_from_cache(model["cache_key"])
 
         spec_tensor = torch.zeros((1, 256, 256, 3))
-        if show_spectrogram:
-            img = generate_spectrogram_comparison(original_waveform, original_sr, result, out_sr)
+        if show_spectrogram and _gen_spectrogram is not None:
+            img = _gen_spectrogram(original_waveform, original_sr, result, out_sr)
             if img is not None:
                 img = img.convert("RGB")
                 arr = np.array(img).astype(np.float32) / 255.0
