@@ -187,7 +187,6 @@ def _run_flashsr(waveform, sr, model_obj, output_sr, lowpass_input, chunk_size, 
     """
     Run FlashSR inference. Returns [C, S] numpy at output_sr.
     FlashSR processes audio in fixed 5.12s (245760 sample) chunks at 48kHz.
-    Placeholder: actual API wired in Task 5.
     """
     flashsr_dir = os.path.join(_current_dir, "flashsr")
     if flashsr_dir not in sys.path:
@@ -229,7 +228,8 @@ def _run_flashsr(waveform, sr, model_obj, output_sr, lowpass_input, chunk_size, 
         out_chunks = []
         for i in range(n_chunks):
             chunk = channel_padded[i * FLASHSR_CHUNK_SAMPLES:(i + 1) * FLASHSR_CHUNK_SAMPLES]
-            chunk_tensor = torch.from_numpy(chunk).unsqueeze(0).to(next(flashsr_model.parameters()).device)
+            model_param = next(flashsr_model.parameters())
+            chunk_tensor = torch.from_numpy(chunk).unsqueeze(0).to(dtype=model_param.dtype, device=model_param.device)
             # lowpass_input=False: we handle lowpass ourselves above; don't apply again inside model
             with torch.no_grad():
                 out = flashsr_model(chunk_tensor, num_steps=1, lowpass_input=False)
