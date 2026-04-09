@@ -361,7 +361,6 @@ class AudioSRSampler:
         if show_spectrogram:
             img = generate_spectrogram_comparison(original_waveform, original_sr, result, out_sr)
             if img is not None:
-                import numpy as np
                 img = img.convert("RGB")
                 arr = np.array(img).astype(np.float32) / 255.0
                 spec_tensor = torch.clamp(torch.from_numpy(arr).unsqueeze(0), 0.0, 1.0)
