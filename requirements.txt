@@ -34,5 +34,8 @@ unidecode
 phonemizer
 chardet
 
+# FlashSR additional dependencies
+psutil
+
 # Optional (gradio for standalone VASR CLI, not needed for ComfyUI)
 # gradio
