@@ -22,7 +22,6 @@ FlashSR loading (requires sys.path manipulation):
 """
 
 import os
-import gc
 import shutil
 import threading
 from pathlib import Path
@@ -60,6 +59,8 @@ _VASR_LOCAL_FILES = {
     "speech": "audiosr_speech_fp32.safetensors",
 }
 
+# Global model cache — keyed by cache_key.
+# Eviction is handled by sampler_node._evict_from_cache() when unload_model=True.
 _model_cache: dict = {}
 _cache_lock = threading.Lock()
 
@@ -79,7 +80,10 @@ def build_cache_key(model_type: str, checkpoint: str, device: str, dtype: str) -
 
 
 def _dtype_str_to_torch(dtype: str) -> torch.dtype:
-    return {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}[dtype]
+    mapping = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}
+    if dtype not in mapping:
+        raise ValueError(f"Invalid dtype '{dtype}'. Must be one of: {list(mapping.keys())}")
+    return mapping[dtype]
 
 
 def _download_flashsr_weights(model_dir: str) -> None:
