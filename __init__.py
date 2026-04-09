@@ -1,4 +1,9 @@
-from .vasr_node import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+try:
+    from .vasr_node import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+except ImportError:
+    # Allow direct import outside of ComfyUI package context (e.g. pytest)
+    NODE_CLASS_MAPPINGS = {}
+    NODE_DISPLAY_NAME_MAPPINGS = {}
 
 # Optional: Frontend JavaScript directory for custom UI
 # WEB_DIRECTORY = "./js"

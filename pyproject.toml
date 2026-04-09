@@ -8,6 +8,11 @@ dependencies = ["torch", "torchaudio", "torchvision", "soundfile", "librosa", "s
 [project.urls]
 Repository = "https://github.com/Saganaki22/ComfyUI-AudioSR"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+pythonpath = ["."]
+
 [tool.comfy]
 PublisherId = "saganaki22"
 DisplayName = "AudioSR"
