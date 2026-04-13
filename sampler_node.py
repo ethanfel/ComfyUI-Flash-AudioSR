@@ -211,16 +211,6 @@ def _run_flashsr(waveform, sr, model_obj, output_sr, lowpass_input, chunk_size, 
     # Resample to 48kHz
     waveform_48k = _resample(waveform, sr, 48000)
 
-    # Optional lowpass before inference (lowpass_input default in FlashSR is True)
-    if lowpass_input:
-        try:
-            from versatile_audio_super_resolution.audiosr.lowpass import lowpass_filter
-            waveform_48k = np.stack(
-                [lowpass_filter(ch, 48000) for ch in waveform_48k], axis=0
-            )
-        except Exception as e:
-            print(f"[Sampler] lowpass_filter failed ({e}) — skipping")
-
     # Use FlashSR native chunk size (5.12s = 245760 samples at 48kHz)
     # User chunk_size/overlap are ignored for FlashSR — chunk size is fixed by the model
     num_samples = waveform_48k.shape[1]
@@ -250,9 +240,8 @@ def _run_flashsr(waveform, sr, model_obj, output_sr, lowpass_input, chunk_size, 
         for i in range(n_chunks):
             chunk = channel_padded[i * FLASHSR_CHUNK_SAMPLES:(i + 1) * FLASHSR_CHUNK_SAMPLES]
             chunk_tensor = torch.from_numpy(chunk).unsqueeze(0).to(dtype=_model_dtype, device=_model_device)
-            # lowpass_input=False: we handle lowpass ourselves above; don't apply again inside model
             with torch.no_grad():
-                out = flashsr_model(chunk_tensor, num_steps=1, lowpass_input=False)
+                out = flashsr_model(chunk_tensor, num_steps=1, lowpass_input=lowpass_input)
             out_chunks.append(out.squeeze(0).cpu().numpy())
 
         channel_out = np.concatenate(out_chunks, axis=0)
@@ -318,8 +307,8 @@ class AudioSRSampler:
                     "tooltip": "[AudioSR only] Random seed (0 = random)"}),
                 "output_sr": (["48000", "44100", "96000"], {"default": "48000",
                     "tooltip": "[FlashSR only] Target output sample rate"}),
-                "lowpass_input": ("BOOLEAN", {"default": False,
-                    "tooltip": "[FlashSR only] Apply lowpass filter before inference"}),
+                "lowpass_input": ("BOOLEAN", {"default": True,
+                    "tooltip": "[FlashSR only] Apply lowpass filter before inference (detects cutoff automatically)"}),
                 "chunk_size": ("FLOAT", {"default": 10.24, "min": 2.56, "max": 30.0, "step": 0.01,
                     "tooltip": "[AudioSR only] Chunk duration in seconds"}),
                 "overlap": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 5.0, "step": 0.1,
@@ -339,7 +328,7 @@ class AudioSRSampler:
     CATEGORY = "audio"
 
     def run(self, audio, model, ddim_steps=50, guidance_scale=3.5, seed=0,
-            output_sr="48000", lowpass_input=False, chunk_size=10.24, overlap=0.5,
+            output_sr="48000", lowpass_input=True, chunk_size=10.24, overlap=0.5,
             attention_backend="sdpa", unload_model=False, show_spectrogram=True):
 
         waveform, sr = _normalize_audio_input(audio)
